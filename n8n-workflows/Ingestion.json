@@ -1,0 +1,165 @@
+{
+  "name": "Ingestion",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "c4628222-4912-4e3b-9ce3-a242f8ec62b0",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "operation": "download",
+        "fileId": {
+          "__rl": true,
+          "value": "https://drive.google.com/file/d/1RXj_3txgmyX2Wyt9ZwM7l4axfi5A6EC-",
+          "mode": "url"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleDrive",
+      "typeVersion": 3,
+      "position": [
+        208,
+        0
+      ],
+      "id": "82542970-fc09-40f2-b8d7-94742f6ad37b",
+      "name": "Download file",
+      "alwaysOutputData": true,
+      "credentials": {
+        "googleDriveOAuth2Api": {
+          "id": "E7a4hLSg86v1VNSD",
+          "name": "Google Drive account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "projectId": {
+          "__rl": true,
+          "value": "single-cirrus-470623-c0",
+          "mode": "list",
+          "cachedResultName": "My First Project",
+          "cachedResultUrl": "https://console.cloud.google.com/bigquery?project=single-cirrus-470623-c0"
+        },
+        "datasetId": {
+          "__rl": true,
+          "value": "n8ntest",
+          "mode": "list",
+          "cachedResultName": "n8ntest"
+        },
+        "tableId": {
+          "__rl": true,
+          "value": "ads_spend",
+          "mode": "list",
+          "cachedResultName": "ads_spend"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2.1,
+      "position": [
+        800,
+        0
+      ],
+      "id": "cd802cf1-98f5-43e9-89ef-4620bc9ef679",
+      "name": "Insert rows in a table",
+      "credentials": {
+        "googleBigQueryOAuth2Api": {
+          "id": "smhEuKkyFxjp8YAN",
+          "name": "Google BigQuery account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1,
+      "position": [
+        416,
+        0
+      ],
+      "id": "79816484-b167-4c30-927d-f14aa0fc5fda",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all(); \n\nfor (let item of items) {\n  // Add metadata\n  item.json.load_date = new Date().toISOString().slice(0, 19).replace('T', ' ');\n  item.json.source_file_name = 'ads_spend.csv';\n  \n  // Convert numeric fields\n  if (item.json.spend) item.json.spend = parseFloat(item.json.spend);\n  if (item.json.clicks) item.json.clicks = parseInt(item.json.clicks);\n  if (item.json.impressions) item.json.impressions = parseInt(item.json.impressions);\n  if (item.json.conversions) item.json.conversions = parseInt(item.json.conversions);\n}\n\nreturn items;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        608,
+        0
+      ],
+      "id": "585e8765-6ac5-4910-8e4a-eed3a5c913a1",
+      "name": "Code"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Download file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download file": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Insert rows in a table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "569e4dd4-bfae-4df8-99af-6e88f83fa476",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "9ff80f1db2388c5c18483be22c978d9811b30aa35d3e7c8d199924f69a72b0ce"
+  },
+  "id": "OBegvHRRvmkshCJW",
+  "tags": []
+}

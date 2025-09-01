@@ -1,0 +1,276 @@
+{
+  "name": "Analyst access",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "metrics",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "fc0f2a8c-aa8f-4b03-b398-fc5ce07a772e",
+      "name": "Webhook",
+      "webhookId": "e361f692-cab8-43d5-8c9b-95e102f038e3"
+    },
+    {
+      "parameters": {
+        "projectId": {
+          "__rl": true,
+          "value": "single-cirrus-470623-c0",
+          "mode": "list",
+          "cachedResultName": "My First Project",
+          "cachedResultUrl": "https://console.cloud.google.com/bigquery?project=single-cirrus-470623-c0"
+        },
+        "sqlQuery": "{{ $json.sql }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2.1,
+      "position": [
+        368,
+        0
+      ],
+      "id": "7cfecc0e-d4e9-41a3-adee-4cfa43066354",
+      "name": "Execute a SQL query",
+      "credentials": {
+        "googleBigQueryOAuth2Api": {
+          "id": "smhEuKkyFxjp8YAN",
+          "name": "Google BigQuery account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        720,
+        0
+      ],
+      "id": "c9f408b6-07a2-43fa-8307-fd821aca017e",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\n// Get the parameters used from the previous node\nconst prevNode = $('Function').first().json;\n\nconst response = {\n  status: \"success\",\n  data: {\n    metrics: {\n      CAC: {\n        current_period: data.current_cac ? Math.round(data.current_cac * 100) / 100 : null,\n        prior_period: data.prior_cac ? Math.round(data.prior_cac * 100) / 100 : null,\n        absolute_change: (data.current_cac && data.prior_cac) ? \n          Math.round((data.current_cac - data.prior_cac) * 100) / 100 : null,\n        percent_change: (data.current_cac && data.prior_cac) ? \n          Math.round(((data.current_cac - data.prior_cac) / data.prior_cac * 100) * 100) / 100 : null\n      },\n      ROAS: {\n        current_period: data.current_roas ? Math.round(data.current_roas * 100) / 100 : null,\n        prior_period: data.prior_roas ? Math.round(data.prior_roas * 100) / 100 : null,\n        absolute_change: (data.current_roas && data.prior_roas) ? \n          Math.round((data.current_roas - data.prior_roas) * 100) / 100 : null,\n        percent_change: (data.current_roas && data.prior_roas) ? \n          Math.round(((data.current_roas - data.prior_roas) / data.prior_roas * 100) * 100) / 100 : null\n      }\n    },\n    parameters_used: {\n      current_period: `${prevNode.start_date} to ${prevNode.end_date}`,\n      prior_period: `${prevNode.prior_start} to ${prevNode.prior_end}`\n    }\n  },\n  timestamp: new Date().toISOString()\n};\n\nreturn [{ json: response }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        560,
+        0
+      ],
+      "id": "24efa2ab-d4b6-4770-920f-be443211b63f",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "jsCode": "const params = $input.first().json.query;\n\nconst startDate = params.start || '2025-06-01';\nconst endDate = params.end || '2025-06-30';\nconst priorStart = params.prior_start || '2025-05-02';\nconst priorEnd = params.prior_end || '2025-05-31';\n\nconst sql = `\nWITH base_metrics AS (\n  SELECT \n    date,\n    spend,\n    conversions,\n    conversions * 100 as revenue,\n    CASE \n      WHEN conversions > 0 THEN spend / conversions \n      ELSE NULL \n    END as cac,\n    CASE \n      WHEN spend > 0 THEN (conversions * 100) / spend \n      ELSE NULL \n    END as roas\n  FROM \\`single-cirrus-470623-c0.n8ntest.ads_spend\\`\n),\ndate_ranges AS (\n  SELECT \n    *,\n    CASE \n      WHEN date >= '${startDate}' AND date <= '${endDate}' THEN 'current_period'\n      WHEN date >= '${priorStart}' AND date <= '${priorEnd}' THEN 'prior_period'\n      ELSE 'other'\n    END as period\n  FROM base_metrics\n),\naggregated_metrics AS (\n  SELECT \n    period,\n    SUM(spend) as total_spend,\n    SUM(conversions) as total_conversions,\n    SUM(revenue) as total_revenue,\n    CASE \n      WHEN SUM(conversions) > 0 THEN SUM(spend) / SUM(conversions)\n      ELSE NULL \n    END as overall_cac,\n    CASE \n      WHEN SUM(spend) > 0 THEN SUM(revenue) / SUM(spend)\n      ELSE NULL \n    END as overall_roas\n  FROM date_ranges\n  WHERE period IN ('current_period', 'prior_period')\n  GROUP BY period\n)\nSELECT \n  curr.overall_cac as current_cac,\n  prev.overall_cac as prior_cac,\n  curr.overall_roas as current_roas,\n  prev.overall_roas as prior_roas,\n  curr.total_spend as current_spend,\n  prev.total_spend as prior_spend\nFROM \n  (SELECT * FROM aggregated_metrics WHERE period = 'current_period') curr\nCROSS JOIN \n  (SELECT * FROM aggregated_metrics WHERE period = 'prior_period') prev\n`;\n\nreturn [{\n  json: {\n    sql: sql,\n    start_date: startDate,\n    end_date: endDate,\n    prior_start: priorStart,\n    prior_end: priorEnd\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        0
+      ],
+      "id": "c26064ee-0783-46fc-9b6d-a304161f6ab1",
+      "name": "Function"
+    },
+    {
+      "parameters": {
+        "path": "agent",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        144
+      ],
+      "id": "b432283c-2db9-4de2-8f6e-60d82aebc88b",
+      "name": "Webhook1",
+      "webhookId": "ce03165c-149c-4e33-922c-e32ab8fbab2a"
+    },
+    {
+      "parameters": {
+        "jsCode": "const userQuestion = $input.first().json.query.question;\n\nif (!userQuestion) {\n  return [{\n    json: {\n      error: \"Please provide a 'question' parameter\",\n      example: \"/agent?question=Compare CAC and ROAS for last 30 days vs prior 30 days\"\n    }\n  }];\n}\n\n// Simple keyword mapping\nconst keywords = {\n  cac: ['cac', 'cost', 'acquisition', 'customer acquisition cost'],\n  roas: ['roas', 'return', 'ad spend', 'roi', 'return on ad spend'],\n  compare: ['compare', 'vs', 'versus', 'against', 'comparison'],\n  recent: ['last', 'recent', 'latest', 'current'],\n  prior: ['prior', 'previous', 'before', 'earlier']\n};\n\n// Basic pattern matching\nconst lowerQuestion = userQuestion.toLowerCase();\nconst wantsCac = keywords.cac.some(word => lowerQuestion.includes(word));\nconst wantsRoas = keywords.roas.some(word => lowerQuestion.includes(word));\nconst wantsCompare = keywords.compare.some(word => lowerQuestion.includes(word));\n\n// Default parameters\nconst apiParams = {\n  start: '2025-06-01',\n  end: '2025-06-30',\n  prior_start: '2025-05-02',\n  prior_end: '2025-05-31'\n};\n\n// Build SQL \nconst sql = `\nWITH base_metrics AS (\n  SELECT \n    date,\n    spend,\n    conversions,\n    conversions * 100 as revenue,\n    CASE \n      WHEN conversions > 0 THEN spend / conversions \n      ELSE NULL \n    END as cac,\n    CASE \n      WHEN spend > 0 THEN (conversions * 100) / spend \n      ELSE NULL \n    END as roas\n  FROM \\`single-cirrus-470623-c0.n8ntest.ads_spend\\`\n),\ndate_ranges AS (\n  SELECT \n    *,\n    CASE \n      WHEN date >= '${apiParams.start}' AND date <= '${apiParams.end}' THEN 'current_period'\n      WHEN date >= '${apiParams.prior_start}' AND date <= '${apiParams.prior_end}' THEN 'prior_period'\n      ELSE 'other'\n    END as period\n  FROM base_metrics\n),\naggregated_metrics AS (\n  SELECT \n    period,\n    SUM(spend) as total_spend,\n    SUM(conversions) as total_conversions,\n    SUM(revenue) as total_revenue,\n    CASE \n      WHEN SUM(conversions) > 0 THEN SUM(spend) / SUM(conversions)\n      ELSE NULL \n    END as overall_cac,\n    CASE \n      WHEN SUM(spend) > 0 THEN SUM(revenue) / SUM(spend)\n      ELSE NULL \n    END as overall_roas\n  FROM date_ranges\n  WHERE period IN ('current_period', 'prior_period')\n  GROUP BY period\n)\nSELECT \n  curr.overall_cac as current_cac,\n  prev.overall_cac as prior_cac,\n  curr.overall_roas as current_roas,\n  prev.overall_roas as prior_roas,\n  curr.total_spend as current_spend,\n  prev.total_spend as prior_spend\nFROM \n  (SELECT * FROM aggregated_metrics WHERE period = 'current_period') curr\nCROSS JOIN \n  (SELECT * FROM aggregated_metrics WHERE period = 'prior_period') prev\n`;\n\nreturn [{\n  json: {\n    original_question: userQuestion,\n    wants_cac: wantsCac || (!wantsCac && !wantsRoas), // default to both if neither specified\n    wants_roas: wantsRoas || (!wantsCac && !wantsRoas),\n    wants_compare: wantsCompare,\n    sql: sql,\n    api_params: apiParams,\n    route: 'agent'\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        208,
+        144
+      ],
+      "id": "59dcc502-6778-42f0-895c-7138e8c63ca4",
+      "name": "Agent Parser"
+    },
+    {
+      "parameters": {
+        "projectId": {
+          "__rl": true,
+          "value": "single-cirrus-470623-c0",
+          "mode": "list",
+          "cachedResultName": "My First Project",
+          "cachedResultUrl": "https://console.cloud.google.com/bigquery?project=single-cirrus-470623-c0"
+        },
+        "sqlQuery": "{{ $json.sql }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleBigQuery",
+      "typeVersion": 2.1,
+      "position": [
+        416,
+        144
+      ],
+      "id": "273db942-3215-46e7-b712-36016824dbbc",
+      "name": "Execute a SQL query1",
+      "credentials": {
+        "googleBigQueryOAuth2Api": {
+          "id": "smhEuKkyFxjp8YAN",
+          "name": "Google BigQuery account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst prevNode = $('Agent Parser').first().json; // Use the actual node name\n\n// Helper function to safely format numbers\nconst formatNumber = (num) => {\n  if (num === null || num === undefined || isNaN(num)) return 'N/A';\n  return parseFloat(num).toFixed(2);\n};\n\nconst formatPercent = (num) => {\n  if (num === null || num === undefined || isNaN(num)) return 'N/A';\n  return parseFloat(num).toFixed(1);\n};\n\n// Generate natural language response\nlet response = `Based on your question: \"${prevNode.original_question}\"\\n\\n`;\n\nif (prevNode.wants_compare) {\n  response += \"Here's the comparison between the two periods:\\n\\n\";\n  \n  if (prevNode.wants_cac) {\n    const currentCac = parseFloat(data.current_cac);\n    const priorCac = parseFloat(data.prior_cac);\n    \n    if (!isNaN(currentCac) && !isNaN(priorCac)) {\n      const cacChange = currentCac - priorCac;\n      const cacPercent = (cacChange / priorCac * 100);\n      response += `• CAC (Customer Acquisition Cost): ${formatNumber(currentCac)} vs ${formatNumber(priorCac)} `;\n      response += cacChange < 0 ? `(improved by ${formatPercent(Math.abs(cacPercent))}%)\\n` : `(increased by ${formatPercent(cacPercent)}%)\\n`;\n    } else {\n      response += `• CAC: ${formatNumber(currentCac)} vs ${formatNumber(priorCac)}\\n`;\n    }\n  }\n  \n  if (prevNode.wants_roas) {\n    const currentRoas = parseFloat(data.current_roas);\n    const priorRoas = parseFloat(data.prior_roas);\n    \n    if (!isNaN(currentRoas) && !isNaN(priorRoas)) {\n      const roasChange = currentRoas - priorRoas;\n      const roasPercent = (roasChange / priorRoas * 100);\n      response += `• ROAS (Return on Ad Spend): ${formatNumber(currentRoas)} vs ${formatNumber(priorRoas)} `;\n      response += roasChange > 0 ? `(improved by ${formatPercent(roasPercent)}%)\\n` : `(decreased by ${formatPercent(Math.abs(roasPercent))}%)\\n`;\n    } else {\n      response += `• ROAS: ${formatNumber(currentRoas)} vs ${formatNumber(priorRoas)}\\n`;\n    }\n  }\n} else {\n  response += \"Here are the current metrics:\\n\\n\";\n  if (prevNode.wants_cac) response += `• Current CAC: ${formatNumber(data.current_cac)}\\n`;\n  if (prevNode.wants_roas) response += `• Current ROAS: ${formatNumber(data.current_roas)}\\n`;\n}\n\nresponse += `\\nData period: ${prevNode.api_params.start} to ${prevNode.api_params.end}`;\n\nconst finalResponse = {\n  status: \"success\",\n  question: prevNode.original_question,\n  answer: response,\n  data: {\n    metrics: {\n      CAC: {\n        current: parseFloat(data.current_cac),\n        prior: parseFloat(data.prior_cac)\n      },\n      ROAS: {\n        current: parseFloat(data.current_roas),\n        prior: parseFloat(data.prior_roas)\n      }\n    }\n  },\n  timestamp: new Date().toISOString()\n};\n\nreturn [{ json: finalResponse }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        624,
+        144
+      ],
+      "id": "fd09767e-dc89-4005-9ea8-f25a59eb7271",
+      "name": "Agent Response parser"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        832,
+        144
+      ],
+      "id": "51560592-0ca7-4c6d-9f20-53cca9aae5a1",
+      "name": "Respond to Webhook1"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Function",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook": {
+      "main": [
+        []
+      ]
+    },
+    "Function": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook1": {
+      "main": [
+        [
+          {
+            "node": "Agent Parser",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agent Parser": {
+      "main": [
+        [
+          {
+            "node": "Execute a SQL query1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query1": {
+      "main": [
+        [
+          {
+            "node": "Agent Response parser",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Agent Response parser": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "86d94985-ce4c-4ddc-a688-1e383dea34e5",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "9ff80f1db2388c5c18483be22c978d9811b30aa35d3e7c8d199924f69a72b0ce"
+  },
+  "id": "ExaVbaEs00K3V07F",
+  "tags": []
+}
